@@ -95,7 +95,8 @@ function deleteProduct($id)
 
     $stmt->bind_param("i", $id);
 
-    $result = $stmt->execute();
+    $stmt->execute();
+    $result = $stmt->affected_rows > 0;
 
     $stmt->close();
 
