@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bài 3 - Quản lý công việc cá nhân</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 32px 16px; min-height: 100vh; background: #f3f6fb; color: #17243a; font: 16px/1.5 system-ui, sans-serif; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 28px; margin: 0 0 6px; }
+    .subtitle { color: #64748b; margin: 0 0 24px; }
+    .card { background: white; border: 1px solid #e3eaf2; border-radius: 18px; padding: 26px; box-shadow: 0 8px 24px #16233e0a; }
+    .add-form { display: flex; gap: 10px; }
+    .add-form input { flex: 1; min-width: 0; padding: 12px 14px; border: 1px solid #b8c5d5; border-radius: 10px; font: inherit; }
+    button { padding: 11px 17px; border-radius: 10px; border: 0; font: inherit; font-weight: 650; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .add-btn { background: #2563eb; color: white; }
+    .stats { display: flex; gap: 14px; margin: 22px 0; flex-wrap: wrap; }
+    .stat { background: #eff6ff; color: #1e40af; padding: 10px 14px; border-radius: 10px; }
+    .stat strong { font-size: 20px; }
+    .toolbar { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 10px; align-items: center; padding-bottom: 18px; border-bottom: 1px solid #e2e8f0; }
+    .filters { display: flex; gap: 8px; flex-wrap: wrap; }
+    .filter { background: #f1f5f9; color: #475569; font-size: 14px; padding: 9px 11px; }
+    .filter.selected { background: #2563eb; color: white; }
+    .clear-btn { background: #fee2e2; color: #b91c1c; font-size: 14px; }
+    .tasks { list-style: none; margin: 0; padding: 0; }
+    .task { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 15px 3px; border-bottom: 1px solid #edf2f7; }
+    .task-label { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; cursor: pointer; overflow-wrap: anywhere; }
+    .task-label input { accent-color: #2563eb; width: 18px; height: 18px; flex: none; }
+    .completed { text-decoration: line-through; color: #94a3b8; }
+    .delete-btn { flex: none; background: #fff1f2; color: #be123c; padding: 7px 12px; }
+    .empty { text-align: center; padding: 36px 15px; color: #64748b; }
+    .empty strong { display: block; color: #334155; margin-bottom: 5px; }
+    @media (max-width: 540px) { .card { padding: 18px; } .add-form { flex-direction: column; } .toolbar { align-items: flex-start; } }
+  </style>
+</head>
+<body>
+  <div id="app" class="container">
+    <h1>Bài 3: Quản lý công việc cá nhân</h1>
+    <p class="subtitle">Vue 3: v-for, :key, v-model, methods, computed và @submit.prevent.</p>
+
+    <section class="card">
+      <!-- @submit.prevent: nút Thêm hoặc Enter đều có thể thêm công việc -->
+      <form class="add-form" @submit.prevent="themCongViec">
+        <input v-model.trim="tenMoi" type="text" placeholder="Nhập công việc cần làm..." aria-label="Tên công việc">
+        <button class="add-btn" type="submit">+ Thêm</button>
+      </form>
+
+      <div class="stats">
+        <div class="stat">Tổng số: <strong>{{ tongSoCongViec }}</strong></div>
+        <div class="stat">Chưa hoàn thành: <strong>{{ soChuaHoanThanh }}</strong></div>
+      </div>
+
+      <div class="toolbar">
+        <div class="filters" aria-label="Bộ lọc công việc">
+          <button v-for="boLoc in danhSachBoLoc" :key="boLoc.giaTri" type="button"
+                  class="filter" :class="{ selected: locHienTai === boLoc.giaTri }"
+                  @click="locHienTai = boLoc.giaTri">
+            {{ boLoc.nhan }}
+          </button>
+        </div>
+        <button type="button" class="clear-btn" @click="xoaDaHoanThanh" :disabled="soDaHoanThanh === 0">
+          Xóa các việc đã hoàn thành
+        </button>
+      </div>
+
+      <!-- Phân biệt danh sách gốc rỗng và kết quả bộ lọc rỗng -->
+      <div v-if="congViecs.length === 0" class="empty">
+        <strong>Chưa có công việc nào</strong>
+        Hãy nhập công việc đầu tiên để bắt đầu.
+      </div>
+      <div v-else-if="congViecDaLoc.length === 0" class="empty">
+        <strong>Không có công việc phù hợp</strong>
+        Hãy thử chuyển sang bộ lọc khác.
+      </div>
+      <ul v-else class="tasks">
+        <li v-for="congViec in congViecDaLoc" :key="congViec.id" class="task">
+          <label class="task-label">
+            <input type="checkbox" v-model="congViec.hoanThanh">
+            <span :class="{ completed: congViec.hoanThanh }">{{ congViec.ten }}</span>
+          </label>
+          <button type="button" class="delete-btn" @click="xoaCongViec(congViec.id)"
+                  :aria-label="'Xóa công việc ' + congViec.ten">Xóa</button>
+        </li>
+      </ul>
+    </section>
+  </div>
+
+  <script>
+    const { createApp } = Vue;
+
+    createApp({
+      data() {
+        return {
+          tenMoi: '',
+          congViecs: [
+            { id: 1, ten: 'Ôn tập Vue 3', hoanThanh: true },
+            { id: 2, ten: 'Làm bài thực hành buổi 6', hoanThanh: false },
+            { id: 3, ten: 'Đọc lại tài liệu trên lớp', hoanThanh: false }
+          ],
+          idTiepTheo: 4,
+          locHienTai: 'tat-ca',
+          danhSachBoLoc: [
+            { giaTri: 'tat-ca', nhan: 'Tất cả' },
+            { giaTri: 'chua-xong', nhan: 'Chưa hoàn thành' },
+            { giaTri: 'da-xong', nhan: 'Đã hoàn thành' }
+          ]
+        };
+      },
+      computed: {
+        tongSoCongViec() {
+          return this.congViecs.length;
+        },
+        soChuaHoanThanh() {
+          return this.congViecs.filter(cv => !cv.hoanThanh).length;
+        },
+        soDaHoanThanh() {
+          return this.congViecs.filter(cv => cv.hoanThanh).length;
+        },
+        congViecDaLoc() {
+          if (this.locHienTai === 'chua-xong') {
+            return this.congViecs.filter(cv => !cv.hoanThanh);
+          }
+          if (this.locHienTai === 'da-xong') {
+            return this.congViecs.filter(cv => cv.hoanThanh);
+          }
+          return this.congViecs;
+        }
+      },
+      methods: {
+        themCongViec() {
+          const ten = this.tenMoi.trim();
+          if (!ten) return; // Không chấp nhận rỗng hoặc toàn dấu cách.
+
+          this.congViecs.push({
+            id: this.idTiepTheo++,
+            ten: ten,
+            hoanThanh: false
+          });
+          this.tenMoi = '';
+        },
+        xoaCongViec(id) {
+          this.congViecs = this.congViecs.filter(cv => cv.id !== id);
+        },
+        xoaDaHoanThanh() {
+          this.congViecs = this.congViecs.filter(cv => !cv.hoanThanh);
+        }
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>

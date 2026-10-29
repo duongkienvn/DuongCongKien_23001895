@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bài 2 - Đặt vé xem phim</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 32px 16px; min-height: 100vh; background: #f3f6fb; color: #17243a; font: 16px/1.5 system-ui, sans-serif; }
+    .container { max-width: 800px; margin: auto; }
+    h1 { font-size: 28px; margin: 0 0 6px; }
+    .subtitle { color: #64748b; margin: 0 0 24px; }
+    .card { background: #fff; border-radius: 18px; padding: 28px; border: 1px solid #e3eaf2; box-shadow: 0 8px 24px #16233e0a; }
+    .movie { background: #172554; border-radius: 12px; padding: 16px 20px; color: white; margin-bottom: 24px; }
+    .movie strong { font-size: 20px; }
+    .movie p { margin: 4px 0 0; color: #bfdbfe; }
+    .field { margin-bottom: 20px; }
+    .field > label, .field > .label { display: block; margin-bottom: 7px; font-weight: 650; }
+    input[type="text"], input[type="number"], select { width: 100%; padding: 12px 14px; border: 1px solid #b8c5d5; border-radius: 10px; font: inherit; color: inherit; background: white; }
+    input[type="radio"], input[type="checkbox"] { accent-color: #2563eb; width: 17px; height: 17px; }
+    .choices { display: flex; gap: 18px; flex-wrap: wrap; }
+    .choices label, .checkbox-label { display: inline-flex; gap: 8px; align-items: center; cursor: pointer; }
+    .counter { display: flex; gap: 8px; max-width: 240px; }
+    .counter input { text-align: center; min-width: 0; }
+    button { border: 0; border-radius: 10px; padding: 11px 17px; font: inherit; font-weight: 650; cursor: pointer; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    .small-btn { background: #dbeafe; color: #1d4ed8; font-size: 20px; min-width: 44px; }
+    .total { border-top: 1px solid #e2e8f0; margin-top: 20px; padding-top: 20px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .price { font-size: 28px; color: #1d4ed8; font-weight: 800; }
+    .hint { color: #b45309; font-size: 13px; margin: 6px 0 0; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+    .primary { background: #2563eb; color: white; }
+    .primary:hover:not(:disabled) { background: #1d4ed8; }
+    .secondary { background: #eef2f7; color: #334155; }
+    .confirmation { background: #f0fdf4; border: 1px solid #86efac; padding: 20px 24px; border-radius: 16px; margin-top: 22px; }
+    .confirmation h2 { color: #166534; margin: 0 0 10px; font-size: 20px; }
+    .confirmation p { margin: 5px 0; }
+    @media (max-width: 540px) { .card { padding: 20px; } .total { align-items: flex-start; flex-direction: column; } }
+  </style>
+</head>
+<body>
+  <div id="app" class="container">
+    <h1>Bài 2: Đặt vé xem phim</h1>
+    <p class="subtitle">Vue 3: v-model, modifiers, methods, computed và @submit.prevent.</p>
+
+    <form class="card" @submit.prevent="datVe">
+      <div class="movie">
+        <strong>Hành trình giữa các vì sao</strong>
+        <p>Đặt vé nhanh - thông tin xác nhận hiển thị ngay trên trang</p>
+      </div>
+
+      <div class="field">
+        <label for="tenKhach">Họ tên khách hàng</label>
+        <input id="tenKhach" type="text" v-model.trim="tenKhach" placeholder="Nhập họ và tên" autocomplete="name">
+      </div>
+
+      <div class="field">
+        <label for="suatChieu">Suất chiếu</label>
+        <select id="suatChieu" v-model="suatChieu">
+          <option v-for="suat in danhSachSuat" :key="suat" :value="suat">{{ suat }}</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <span class="label">Loại vé</span>
+        <div class="choices">
+          <label><input type="radio" v-model="loaiVe" value="thuong"> Vé thường - 70.000 đ</label>
+          <label><input type="radio" v-model="loaiVe" value="vip"> Vé VIP - 100.000 đ</label>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="soLuong">Số lượng vé (1-10)</label>
+        <div class="counter">
+          <button class="small-btn" type="button" @click="giamSoLuong" :disabled="!soLuongHopLe || soLuong <= 1" aria-label="Giảm số lượng">−</button>
+          <input id="soLuong" type="number" min="1" max="10" step="1" v-model.number="soLuong">
+          <button class="small-btn" type="button" @click="tangSoLuong" :disabled="!soLuongHopLe || soLuong >= 10" aria-label="Tăng số lượng">+</button>
+        </div>
+        <p v-if="!soLuongHopLe" class="hint">Số lượng phải là số nguyên từ 1 đến 10.</p>
+      </div>
+
+      <div class="field">
+        <label class="checkbox-label">
+          <input type="checkbox" v-model="coCombo">
+          Combo bắp nước (+45.000 đ / đơn đặt vé)
+        </label>
+      </div>
+
+      <div class="total">
+        <strong>Tổng tiền</strong>
+        <span class="price">{{ dinhDangTien(tongTien) }}</span>
+      </div>
+
+      <div class="actions">
+        <button class="primary" type="submit" :disabled="!coTheDatVe">Đặt vé</button>
+        <button class="secondary" type="button" @click="datLai">Đặt lại form</button>
+      </div>
+      <p v-if="!coTheDatVe" class="hint">Vui lòng nhập họ tên và số lượng vé hợp lệ để đặt vé.</p>
+    </form>
+
+    <section v-if="xacNhan" class="confirmation" aria-live="polite">
+      <h2>✓ Đặt vé thành công!</h2>
+      <p><strong>Khách hàng:</strong> {{ xacNhan.tenKhach }}</p>
+      <p><strong>Phim:</strong> {{ xacNhan.tenPhim }}</p>
+      <p><strong>Suất chiếu:</strong> {{ xacNhan.suatChieu }}</p>
+      <p><strong>Loại vé:</strong> {{ xacNhan.loaiVe }}</p>
+      <p><strong>Số lượng:</strong> {{ xacNhan.soLuong }}</p>
+      <p><strong>Combo bắp nước:</strong> {{ xacNhan.coCombo ? 'Có' : 'Không' }}</p>
+      <p><strong>Tổng tiền:</strong> {{ dinhDangTien(xacNhan.tongTien) }}</p>
+    </section>
+  </div>
+
+  <script>
+    const { createApp } = Vue;
+
+    createApp({
+      data() {
+        return {
+          tenPhim: 'Hành trình giữa các vì sao',
+          tenKhach: '',
+          danhSachSuat: ['09:00', '14:00', '19:30'],
+          suatChieu: '09:00',
+          loaiVe: 'thuong',
+          soLuong: 1,
+          coCombo: false,
+          xacNhan: null
+        };
+      },
+      computed: {
+        giaVe() {
+          return this.loaiVe === 'vip' ? 100000 : 70000;
+        },
+        soLuongHopLe() {
+          return Number.isInteger(this.soLuong) && this.soLuong >= 1 && this.soLuong <= 10;
+        },
+        tongTien() {
+          if (!this.soLuongHopLe) return 0;
+          return this.giaVe * this.soLuong + (this.coCombo ? 45000 : 0);
+        },
+        coTheDatVe() {
+          return this.tenKhach.trim().length > 0 && this.soLuongHopLe;
+        }
+      },
+      methods: {
+        dinhDangTien(soTien) {
+          return soTien.toLocaleString('vi-VN') + ' đ';
+        },
+        tangSoLuong() {
+          if (this.soLuongHopLe && this.soLuong < 10) this.soLuong++;
+        },
+        giamSoLuong() {
+          if (this.soLuongHopLe && this.soLuong > 1) this.soLuong--;
+        },
+        datLai() {
+          this.tenKhach = '';
+          this.suatChieu = '09:00';
+          this.loaiVe = 'thuong';
+          this.soLuong = 1;
+          this.coCombo = false;
+          this.xacNhan = null;
+        },
+        datVe() {
+          if (!this.coTheDatVe) return;
+
+          // Lưu bản sao dữ liệu khi đặt vé, không phụ thuộc các thay đổi form về sau.
+          this.xacNhan = {
+            tenKhach: this.tenKhach,
+            tenPhim: this.tenPhim,
+            suatChieu: this.suatChieu,
+            loaiVe: this.loaiVe === 'vip' ? 'VIP' : 'Thường',
+            soLuong: this.soLuong,
+            coCombo: this.coCombo,
+            tongTien: this.tongTien
+          };
+        }
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
