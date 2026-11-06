@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bài 2 - Danh mục sản phẩm bằng component</title>
+  <link rel="stylesheet" href="../shared.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app" class="shell" v-cloak>
+    <nav class="topbar"><a href="../index.html" class="back-link">← Về danh sách bài tập</a><span class="status">Vue 3 · Component</span></nav>
+    <header class="page-header">
+      <p class="eyebrow">BÀI 02 · PROPS / COMPONENT / DATA RIÊNG</p>
+      <h1>Danh mục sản phẩm</h1>
+      <p class="lead">Mỗi thẻ được tạo từ cùng một component, nhận dữ liệu từ cha bằng props và quản lý việc mở mô tả độc lập.</p>
+    </header>
+
+    <section aria-label="Danh sách sản phẩm">
+      <div class="catalog-summary">
+        <strong>{{ sanPham.length }} sản phẩm</strong>
+        <span class="muted">{{ soSanPhamConHang }} còn hàng · {{ sanPham.length - soSanPhamConHang }} hết hàng</span>
+      </div>
+      <div class="product-grid">
+        <!-- Kebab-case trong HTML là tên component, props bind bằng :... -->
+        <the-san-pham
+          v-for="sp in sanPham"
+          :key="sp.id"
+          :ten="sp.ten"
+          :gia="sp.gia"
+          :anh="sp.anh"
+          :mo-ta="sp.moTa"
+          :so-luong-ton="sp.soLuongTon"
+          @mua="xuLyMua"
+        ></the-san-pham>
+      </div>
+    </section>
+    <p v-if="thongBaoMua" class="banner banner-success" role="status">{{ thongBaoMua }}</p>
+    <p class="footnote">Thử mở mô tả một thẻ: các thẻ còn lại vẫn giữ nguyên trạng thái. Sản phẩm hết hàng có nút “Mua” bị khóa.</p>
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <!-- Theo đề: phải NẠP file component và ĐĂNG KÝ trước khi mount -->
+  <script src="components/TheSanPham.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

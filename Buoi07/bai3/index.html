@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bài 3 - Giỏ hàng với props và $emit</title>
+  <link rel="stylesheet" href="../shared.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app" class="shell" v-cloak>
+    <nav class="topbar"><a href="../index.html" class="back-link">← Về danh sách bài tập</a><span class="status">Props ↓ · $emit ↑</span></nav>
+    <header class="page-header">
+      <p class="eyebrow">BÀI 03 · LUỒNG DỮ LIỆU MỘT CHIỀU</p>
+      <h1>Giỏ hàng</h1>
+      <p class="lead">Component con hiển thị sản phẩm và phát sự kiện; component cha kiểm tra rồi cập nhật giỏ hàng.</p>
+    </header>
+
+    <div class="cart-layout">
+      <section class="panel" aria-labelledby="gio-hang">
+        <div class="section-heading">
+          <h2 class="panel-title" id="gio-hang">Sản phẩm trong giỏ</h2>
+          <span class="muted small">{{ gioHang.length }} loại sản phẩm</span>
+        </div>
+        <div class="cart-head" v-if="gioHang.length > 0">
+          <span>Sản phẩm</span><span>Số lượng</span><span>Thành tiền</span><span></span>
+        </div>
+
+        <!-- Con chỉ đọc props. Mọi thay đổi phải phát sự kiện cho cha xử lý. -->
+        <dong-gio-hang
+          v-for="sp in gioHang"
+          :key="sp.id"
+          :id="sp.id"
+          :ten="sp.ten"
+          :don-gia="sp.donGia"
+          :so-luong="sp.soLuong"
+          @doi-so-luong="doiSoLuong"
+          @yeu-cau-xoa="xoaSanPham"
+        ></dong-gio-hang>
+
+        <div v-if="gioHang.length === 0" class="cart-empty">
+          <div class="empty-icon" aria-hidden="true">🛒</div>
+          <h3>Giỏ hàng trống</h3>
+          <p class="muted">Bạn đã xóa hết sản phẩm trong giỏ hàng.</p>
+        </div>
+      </section>
+
+      <aside class="panel summary-panel" aria-label="Tổng kết giỏ hàng">
+        <h2 class="panel-title">Tổng kết</h2>
+        <div class="summary-row"><span>Tổng số lượng</span><strong>{{ tongSoLuong }} sản phẩm</strong></div>
+        <div class="summary-row summary-total"><span>Tổng tiền</span><strong>{{ dinhDangTien(tongTien) }}</strong></div>
+        <p class="muted summary-note">Số lượng mỗi sản phẩm được giới hạn trong khoảng 1–99.</p>
+        <button class="btn btn-secondary reset-btn" type="button" @click="khoiPhucDuLieuMau">Khôi phục dữ liệu mẫu</button>
+      </aside>
+    </div>
+    <p v-if="thongBaoLoi" class="banner banner-error" role="alert">{{ thongBaoLoi }}</p>
+    <p class="footnote">Kiểm tra ban đầu theo đề: 2 bút × 5.000đ + 3 quyển vở × 12.000đ = <strong>46.000đ</strong>; tổng số lượng = <strong>5</strong>.</p>
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="components/DongGioHang.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
