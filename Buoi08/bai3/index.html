@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Bài thực hành 8: CRUD sản phẩm bằng PHP, MySQL, PDO và Vue 3.">
+    <title>Thực hành 8 | Quản lý sản phẩm</title>
+    <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+<div id="app" v-cloak>
+    <header class="hero">
+        <div class="container hero-inner">
+            <div>
+                <div class="eyebrow">LẬP TRÌNH WEB <span>·</span> THỰC HÀNH 08</div>
+                <h1>Quản lý sản phẩm</h1>
+                <p>PHP &amp; MySQL API kết hợp với Vue.js — thêm, sửa và xóa mà không tải lại trang.</p>
+            </div>
+            <div class="hero-mark" aria-hidden="true">08</div>
+        </div>
+    </header>
+
+    <main class="container content">
+        <div v-if="message.text" class="notice" :class="'notice-' + message.type" role="alert">
+            <span>{{ message.text }}</span>
+            <button type="button" class="notice-close" aria-label="Đóng thông báo" @click="clearMessage">×</button>
+        </div>
+
+        <div class="summary">
+            <div class="stat">
+                <span class="stat-label">Tổng sản phẩm</span>
+                <strong>{{ loadFailed ? '—' : products.length }}</strong>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Còn hàng</span>
+                <strong>{{ loadFailed ? '—' : inStockCount }}</strong>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Hết hàng</span>
+                <strong>{{ loadFailed ? '—' : outOfStockCount }}</strong>
+            </div>
+        </div>
+
+        <div class="workspace">
+            <section class="panel form-panel" aria-labelledby="form-title">
+                <div class="panel-heading">
+                    <div class="section-kicker">BIỂU MẪU</div>
+                    <h2 id="form-title">{{ isEditing ? 'Sửa sản phẩm' : 'Thêm sản phẩm' }}</h2>
+                    <p>{{ isEditing ? 'Đang chỉnh sửa sản phẩm #' + editingId : 'Nhập đầy đủ thông tin để thêm sản phẩm.' }}</p>
+                </div>
+
+                <form @submit.prevent="saveProduct">
+                    <label for="product-name">Tên sản phẩm <span class="required">*</span></label>
+                    <input id="product-name" v-model="form.name" type="text" placeholder="Ví dụ: Bút chì" required :disabled="busy || loading">
+
+                    <label for="product-price">Đơn giá (đồng) <span class="required">*</span></label>
+                    <input id="product-price" v-model.number="form.price" type="number" placeholder="Ví dụ: 5000" min="1" max="2147483647" step="1" required :disabled="busy || loading">
+
+                    <label for="product-stock">Số lượng tồn <span class="required">*</span></label>
+                    <input id="product-stock" v-model.number="form.stock" type="number" placeholder="Ví dụ: 20" min="0" max="2147483647" step="1" required :disabled="busy || loading">
+
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary" :disabled="busy || loading || loadFailed">
+                            {{ busy ? 'Đang lưu...' : (isEditing ? 'Lưu thay đổi' : 'Thêm sản phẩm') }}
+                        </button>
+                        <button v-if="isEditing" type="button" class="btn btn-secondary" @click="resetForm" :disabled="busy">Hủy sửa</button>
+                        <button v-else type="button" class="btn btn-secondary" @click="resetForm" :disabled="busy">Nhập lại</button>
+                    </div>
+                </form>
+                <p class="form-hint">* Trường bắt buộc. API luôn kiểm tra lại dữ liệu trước khi ghi MySQL.</p>
+            </section>
+
+            <section class="panel table-panel" aria-labelledby="table-title">
+                <div class="table-header">
+                    <div>
+                        <div class="section-kicker">DANH SÁCH</div>
+                        <h2 id="table-title">Sản phẩm hiện có</h2>
+                        <p>Dữ liệu được đọc trực tiếp từ cơ sở dữ liệu.</p>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-refresh" @click="loadProducts" :disabled="loading || busy">
+                        {{ loading ? 'Đang tải...' : 'Làm mới' }}
+                    </button>
+                </div>
+
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                        <tr>
+                            <th scope="col">Tên sản phẩm</th>
+                            <th scope="col">Đơn giá</th>
+                            <th scope="col">Tồn kho</th>
+                            <th scope="col" class="actions-header">Thao tác</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr v-if="loading">
+                            <td colspan="4" class="empty-cell">Đang tải danh sách sản phẩm...</td>
+                        </tr>
+                        <tr v-else-if="loadFailed">
+                            <td colspan="4" class="empty-cell">Chưa tải được danh sách. Nhấn Làm mới để thử lại.</td>
+                        </tr>
+                        <tr v-else-if="products.length === 0">
+                            <td colspan="4" class="empty-cell">Chưa có sản phẩm nào. Hãy thêm sản phẩm đầu tiên!</td>
+                        </tr>
+                        <tr v-for="product in (loading || loadFailed ? [] : products)" :key="product.id">
+                            <td>
+                                <div class="product-name">{{ product.name }}</div>
+                                <div class="product-id">ID: {{ product.id }}</div>
+                            </td>
+                            <td class="price">{{ formatPrice(product.price) }}</td>
+                            <td>
+                                <span class="stock-badge" :class="product.stock === 0 ? 'stock-empty' : 'stock-available'">
+                                    {{ product.stock === 0 ? 'Hết hàng' : product.stock + ' sản phẩm' }}
+                                </span>
+                            </td>
+                            <td class="row-actions">
+                                <button type="button" class="text-btn edit-btn" @click="editProduct(product)" :disabled="busy || loading || loadFailed">Sửa</button>
+                                <button type="button" class="text-btn delete-btn" @click="deleteProduct(product)" :disabled="busy || loading || loadFailed">Xóa</button>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+        <footer>Thực hành PHP &amp; Vue.js · API GET / POST / PUT / DELETE</footer>
+    </main>
+</div>
+
+<!-- Vue 3 sử dụng CDN như nội dung đã học trên lớp; không cần npm/Vite. -->
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<script src="assets/js/app.js"></script>
+</body>
+</html>

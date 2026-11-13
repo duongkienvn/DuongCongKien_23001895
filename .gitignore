@@ -1,2 +1,5 @@
 # JetBrains IDE (PhpStorm, WebStorm, IntelliJ)
 .idea/
+
+# Mật khẩu MySQL riêng của máy
+/Buoi08/bai2/config/database.local.php
