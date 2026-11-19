@@ -58,5 +58,18 @@ check('ID INT_MAX', function () {
     if (requireProductId('2147483647') !== 2147483647) throw new RuntimeException('ID không đúng.');
 });
 
+check('Phân trang mặc định', function () {
+    if (validatePagination([]) !== ['page'=>1,'limit'=>5]) throw new RuntimeException('Sai mặc định.');
+});
+check('Trang rất lớn được chặn trước khi tính OFFSET', function () {
+    if (validatePagination(['page'=>str_repeat('9',100)])['page'] !== PHP_INT_MAX) throw new RuntimeException('Tràn số trang.');
+});
+foreach (['0','-1','1.5','1e2','abc','',[]] as $page) {
+    check('Trang sai: '.json_encode($page), fn()=>validatePagination(['page'=>$page]), true);
+}
+foreach (['0','10','5.0','',[]] as $limit) {
+    check('Limit sai: '.json_encode($limit), fn()=>validatePagination(['limit'=>$limit]), true);
+}
+
 echo "Kết quả: $passed đạt, $failed lỗi." . PHP_EOL;
 exit($failed === 0 ? 0 : 1);

@@ -89,3 +89,33 @@ function requireProductId(mixed $rawId): int
 
     return $id;
 }
+
+/** @return array{page: int, limit: int} */
+function validatePagination(array $query): array
+{
+    $rawPage = $query['page'] ?? '1';
+    $rawLimit = $query['limit'] ?? '5';
+    if (!is_string($rawPage) || !preg_match('/^[1-9][0-9]*$/D', $rawPage)) {
+        throw new InvalidArgumentException('Trang phải là số nguyên dương.');
+    }
+    if ($rawLimit !== '5') {
+        throw new InvalidArgumentException('Mỗi trang phải có đúng 5 sản phẩm (limit=5).');
+    }
+    // Số trang rất lớn vẫn hợp lệ; API sẽ đưa về trang cuối trước khi tính OFFSET.
+    $maximum = (string) PHP_INT_MAX;
+    $page = strlen($rawPage) > strlen($maximum)
+        || (strlen($rawPage) === strlen($maximum) && strcmp($rawPage, $maximum) > 0)
+        ? PHP_INT_MAX : (int) $rawPage;
+    return ['page' => $page, 'limit' => 5];
+}
+
+function deleteProductImage(?string $image): void
+{
+    // Chỉ xóa tệp do API này tạo, không nhận đường dẫn tùy ý từ dữ liệu.
+    if ($image !== null && preg_match('~^uploads/[a-f0-9]{32}\.(?:jpg|png)$~D', $image)) {
+        $path = __DIR__ . '/../' . $image;
+        if (is_file($path) && !@unlink($path)) {
+            error_log('Cannot remove unused product image: ' . $image);
+        }
+    }
+}

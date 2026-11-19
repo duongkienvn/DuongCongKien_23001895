@@ -78,7 +78,7 @@ $root = realpath(__DIR__ . '/../..');
 $admin = null;
 $created = false;
 $processes = [];
-$log = sys_get_temp_dir() . '/' . $database . '.log';
+$log = __DIR__ . '/' . $database . '.log';
 try {
     expect(extension_loaded('pdo_mysql') && extension_loaded('curl'), 'pdo_mysql and curl are required');
     $admin = connectDatabase();
@@ -93,23 +93,40 @@ try {
     $count = fn() => (int) $admin->query('SELECT COUNT(*) FROM products')->fetchColumn();
     $valid = json_encode(['name' => '  Bút chì  ', 'price' => 4998, 'stock' => 10], JSON_UNESCAPED_UNICODE);
 
-    test('SQL schema, seed and GET 200 typed/sorted data', function () use ($admin, $base) {
+    test('Schema upgrade preserves records and images; seed fills only to 12 and is idempotent', function () use ($admin, $schema) {
+        expect((int)$admin->query('SELECT COUNT(*) FROM products')->fetchColumn() === 12, 'Expected 12 seed products');
+        $columns=$admin->query('SHOW COLUMNS FROM products')->fetchAll(PDO::FETCH_UNIQUE);
+        expect(($columns['image']['Type'] ?? null)==='varchar(255)' && $columns['image']['Null']==='YES','Missing nullable image');
+        $admin->exec("UPDATE products SET image='uploads/existing.png' WHERE id=1");
+        $before=$admin->query('SELECT * FROM products ORDER BY id')->fetchAll();
+        $admin->exec($schema);
+        expect($before===$admin->query('SELECT * FROM products ORDER BY id')->fetchAll(),'Repeated schema changed records');
+        $admin->exec('ALTER TABLE products DROP COLUMN image');
+        $before=$admin->query('SELECT * FROM products ORDER BY id')->fetchAll();
+        $admin->exec($schema);
+        expect($before===$admin->query('SELECT id,name,price,stock FROM products ORDER BY id')->fetchAll(),'Upgrade changed original data');
+    });
+    // Keep the original CRUD regression scenarios independent of the new seed count.
+    $admin->exec('DELETE FROM products');
+    $admin->exec('ALTER TABLE products AUTO_INCREMENT=1');
+    $admin->exec("INSERT INTO products(name,price,stock) VALUES ('Bút bi',5000,20),('Vở ô ly',12000,15),('Thước kẻ',8000,0)");
+    test('SQL schema and GET 200 typed/sorted data', function () use ($admin, $base) {
         $columns = $admin->query('SHOW COLUMNS FROM products')->fetchAll(PDO::FETCH_UNIQUE);
         expect($columns['id']['Key'] === 'PRI' && str_contains($columns['id']['Extra'], 'auto_increment'), 'id must be auto increment PK');
         expect($columns['name']['Type'] === 'varchar(100)' && $columns['name']['Null'] === 'NO', 'name schema');
         expect($columns['price']['Type'] === 'int' && $columns['stock']['Type'] === 'int', 'INT schema');
         $rows = api(http($base), 200, true)['data'];
         expect($rows === [
-            ['id'=>1,'name'=>'Bút bi','price'=>5000,'stock'=>20],
-            ['id'=>2,'name'=>'Vở ô ly','price'=>12000,'stock'=>15],
-            ['id'=>3,'name'=>'Thước kẻ','price'=>8000,'stock'=>0],
+            ['id'=>3,'name'=>'Thước kẻ','price'=>8000,'stock'=>0,'image'=>null],
+            ['id'=>2,'name'=>'Vở ô ly','price'=>12000,'stock'=>15,'image'=>null],
+            ['id'=>1,'name'=>'Bút bi','price'=>5000,'stock'=>20,'image'=>null],
         ], 'Wrong seed or numeric types');
     });
     test('POST 201 creates ID 4, trim, GET/reload persists and DB agrees', function () use ($base, $valid, $admin) {
         $data = api(http($base, 'POST', '', $valid), 201, true);
         expect($data['data']['id'] === 4, 'Expected ID 4');
-        $row = api(http($base), 200, true)['data'][3];
-        expect($row === ['id'=>4,'name'=>'Bút chì','price'=>4998,'stock'=>10], 'GET differs from insert');
+        $row = api(http($base), 200, true)['data'][0];
+        expect($row === ['id'=>4,'name'=>'Bút chì','price'=>4998,'stock'=>10,'image'=>null], 'GET differs from insert');
         expect($admin->query('SELECT name FROM products WHERE id=4')->fetchColumn() === 'Bút chì', 'DB differs');
     });
     test('PUT 200 changes price; identical PUT remains 200', function () use ($base, $admin) {
@@ -117,7 +134,7 @@ try {
         api(http($base, 'PUT', '?id=4', $body), 200, true);
         api(http($base, 'PUT', '?id=4', $body), 200, true);
         expect((int)$admin->query('SELECT price FROM products WHERE id=4')->fetchColumn() === 6000, 'PUT did not persist');
-        expect(api(http($base), 200, true)['data'][3]['stock'] === 0, 'GET stale');
+        expect(api(http($base), 200, true)['data'][0]['stock'] === 0, 'GET stale');
     });
     test('DELETE ID 4 -> 200 JSON, DB absent, reload absent; repeat -> 404 JSON', function () use ($base, $admin) {
         $response = http($base, 'DELETE', '?id=4'); api($response, 200, true);
@@ -173,7 +190,7 @@ try {
         foreach (["' OR 1=1; DROP TABLE products; --", '<img src=x onerror=alert(1)>', str_repeat('😀',100), "\u{00A0}Bút\u{FEFF}"] as $name) {
             $body=json_encode(['name'=>$name,'price'=>2147483647,'stock'=>2147483647]);
             $id=api(http($base,'POST','',$body,'Application/JSON; charset=utf-8'),201,true)['data']['id'];
-            $rows=api(http($base),200,true)['data']; $row=end($rows);
+            $rows=api(http($base),200,true)['data']; $row=$rows[0];
             expect($row['name'] === ($name === "\u{00A0}Bút\u{FEFF}" ? 'Bút' : $name), 'Name corrupted');
             expect($row['price']===2147483647 && $row['stock']===2147483647,'Overflow');
             api(http($base,'DELETE','?id='.$id),200,true);
@@ -227,6 +244,86 @@ try {
         }
         expect($count()===3,'CRUD cycle changed final count');
     });
+    test('Pagination: 12 rows -> 5/5/2, DESC, defaults and clamped page', function() use($admin,$schema,$base) {
+        $admin->exec('DELETE FROM products'); $admin->exec('ALTER TABLE products AUTO_INCREMENT=1'); $admin->exec($schema);
+        $seen=[];
+        foreach([1=>5,2=>5,3=>2,999=>2] as $requested=>$size) {
+            $result=api(http($base,'GET','?page='.$requested.'&limit=5'),200,true);
+            expect($result['pagination']===['page'=>min(3,$requested),'limit'=>5,'total'=>12,'total_pages'=>3],'Wrong pagination');
+            expect(count($result['data'])===$size,'Wrong page size');
+            if($requested<=3) $seen=array_merge($seen,array_column($result['data'],'id'));
+        }
+        expect($seen===range(12,1),'Pages overlap or are not DESC');
+        expect(api(http($base),200,true)['pagination']['page']===1,'Wrong default page');
+        expect(api(http($base,'GET','?page=9223372036854775807'),200,true)['pagination']['page']===3,'Large positive page must clamp');
+        foreach(['page=0','page=-1','page=1.5','page=abc','page=','page[]=1','page=1e2','limit=0','limit=10','limit=5.0','limit=','limit[]=5'] as $query) {
+            api(http($base,'GET','?'.$query),400,false);
+        }
+        api(http($base,'DELETE','?id=1'),200,true);
+        expect(count(api(http($base,'GET','?page=3'),200,true)['data'])===1,'Expected one last-page row');
+        api(http($base,'DELETE','?id=2'),200,true);
+        $result=api(http($base,'GET','?page=3'),200,true);
+        expect($result['pagination']['page']===2 && count($result['data'])===5,'Deleted last page did not clamp');
+        $admin->exec('DELETE FROM products');
+        $result=api(http($base,'GET','?page=99'),200,true);
+        expect($result['data']===[] && $result['pagination']===['page'=>1,'limit'=>5,'total'=>0,'total_pages'=>1],'Wrong empty page');
+    });
+    test('Upload validates multipart, MIME, size and ID; PNG/JPEG replacement and PUT preservation', function() use($admin,$base,$root) {
+        $id=api(http($base,'POST','','{"name":"Upload test","price":1,"stock":0}'),201,true)['data']['id'];
+        $fixture=__DIR__.'/upload_'.bin2hex(random_bytes(6)); mkdir($fixture);
+        $stored=[];
+        $upload=function(array $fields,string $method='POST')use($base){
+            $ch=curl_init($base.'/bai2/api/upload.php'); $headers=[];
+            curl_setopt_array($ch,[CURLOPT_CUSTOMREQUEST=>$method,CURLOPT_POSTFIELDS=>$fields,CURLOPT_RETURNTRANSFER=>true,CURLOPT_TIMEOUT=>10,
+                CURLOPT_HEADERFUNCTION=>function($ch,$line)use(&$headers){$parts=explode(':',$line,2);if(count($parts)===2)$headers[strtolower(trim($parts[0]))]=trim($parts[1]);return strlen($line);}]);
+            $raw=curl_exec($ch); if($raw===false)throw new RuntimeException(curl_error($ch));
+            $response=['status'=>curl_getinfo($ch,CURLINFO_RESPONSE_CODE),'headers'=>$headers,'raw'=>$raw];curl_close($ch);return $response;
+        };
+        try {
+            $png=base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWQ0AAAAASUVORK5CYII=');
+            file_put_contents($fixture.'/valid.png',$png);
+            file_put_contents($fixture.'/fake.png','<?php echo "unsafe";');
+            file_put_contents($fixture.'/large.png',$png.str_repeat('x',2097153));
+            file_put_contents($fixture.'/boundary.png',$png.str_repeat('x',2097152-strlen($png)));
+            $file=fn($name,$mime='image/png',$display=null)=>new CURLFile($fixture.'/'.$name,$mime,$display??$name);
+            api($upload(['product_id'=>$id]),400,false);
+            api($upload(['image'=>$file('valid.png')]),400,false);
+            api($upload(['product_id'=>'bad','image'=>$file('valid.png')]),400,false);
+            api($upload(['product_id'=>2147483647,'image'=>$file('valid.png')]),404,false);
+            api($upload(['product_id'=>$id,'image'=>$file('fake.png')]),400,false);
+            api($upload(['product_id'=>$id,'image'=>$file('large.png')]),413,false);
+            api($upload(['product_id'=>$id],'GET'),405,false);
+            $result=api($upload(['product_id'=>$id,'image'=>$file('valid.png','text/plain','../../payload.php')]),200,true);
+            $image=$result['data']['image']; $stored[]=$image;
+            expect(preg_match('~^uploads/[a-f0-9]+\.png$~D',$image)===1,'Unsafe filename or trusted client MIME');
+            expect(file_get_contents($root.'/bai2/'.$image)===$png,'Saved bytes differ');
+            expect($admin->query('SELECT image FROM products WHERE id='.(int)$id)->fetchColumn()===$image,'Wrong product updated');
+            api(http($base,'PUT','?id='.$id,'{"name":"Updated","price":2,"stock":1,"image":null}'),200,true);
+            expect(api(http($base),200,true)['data'][0]['image']===$image,'PUT lost image');
+            api($upload(['product_id'=>$id,'image'=>$file('fake.png')]),400,false);
+            expect($admin->query('SELECT image FROM products WHERE id='.(int)$id)->fetchColumn()===$image,'Failed upload replaced image');
+            $boundary=api($upload(['product_id'=>$id,'image'=>$file('boundary.png')]),200,true);$stored[]=$boundary['data']['image'];
+            file_put_contents($fixture.'/valid.jpg',base64_decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAn/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAAAP/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AJVAA//Z'));
+            $result=api($upload(['product_id'=>$id,'image'=>$file('valid.jpg','image/jpeg')]),200,true);$stored[]=$result['data']['image'];
+            $jpegPath=$result['data']['image'];
+            expect($jpegPath!==$image && str_ends_with($jpegPath,'.jpg'),'JPEG replacement failed');
+            expect(is_file($root.'/bai2/'.$jpegPath),'JPEG not saved');
+            // A database failure after move must remove the new file and preserve the current image.
+            $before=glob($root.'/bai2/uploads/*');
+            $admin->exec("CREATE TRIGGER reject_test_image BEFORE UPDATE ON products FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='test failure'");
+            try {api($upload(['product_id'=>$id,'image'=>$file('valid.png')]),500,false);}
+            finally {$admin->exec('DROP TRIGGER reject_test_image');}
+            expect($before===glob($root.'/bai2/uploads/*'),'Failed DB write leaked a file');
+            expect($admin->query('SELECT image FROM products WHERE id='.(int)$id)->fetchColumn()===$jpegPath,'DB error changed image');
+            api(http($base,'DELETE','?id='.$id),200,true);
+        } finally {
+            foreach($stored as $image) {
+                $path=$root.'/bai2/'.$image; clearstatcache(true,$path);
+                if(is_file($path))unlink($path);
+            }
+            foreach(glob($fixture.'/*') as $file)unlink($file);rmdir($fixture);
+        }
+    });
     test('No PHP warning/fatal/parse errors in HTTP server log',function()use($log){
         expect(!preg_match('/PHP (?:Warning|Fatal error|Parse error)|<br\s*\/>/i',file_get_contents($log)),'PHP emitted warning/fatal; see log');
     });
@@ -241,5 +338,6 @@ try {
 } finally {
     foreach(array_reverse($processes) as $process) {proc_terminate($process);proc_close($process);}
     if($created) {$admin->exec("DROP DATABASE IF EXISTS `$database`");echo "CLEANUP: dropped $database\n";}
+    if(is_file($log)) unlink($log);
 }
 exit($failed===0?0:1);

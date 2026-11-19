@@ -67,6 +67,18 @@ tbody tr:hover { background: #fbfcff; }
 .delete-btn { color: #c83b4b; margin-left: 6px; }
 .text-btn:hover:not(:disabled) { text-decoration: underline; }
 .empty-cell { text-align: center; color: #7e8a9d; padding: 44px 20px; }
+.image-hint, .image-error, .upload-retry p { font-size: 12px; line-height: 1.6; margin: 0 0 12px; }
+.image-hint { color: #69758c; }
+.image-error { color: #a42d38; }
+.image-error:empty { display: none; }
+input[type="file"] { font-size: 12px; margin-bottom: 8px; }
+.image-preview { width: 100%; height: 160px; object-fit: contain; border: 1px solid #e4e9f2; border-radius: 8px; margin-bottom: 16px; }
+.product-thumbnail { width: 56px; height: 56px; object-fit: cover; border-radius: 7px; display: block; }
+.no-image { color: #69758c; font-size: 12px; white-space: nowrap; }
+.upload-retry { padding: 12px; border: 1px solid #ffc2c9; background: #fff0f1; border-radius: 8px; margin-bottom: 16px; }
+.pagination { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 16px 20px; border-top: 1px solid #edf0f6; }
+.pagination span { font-size: 12px; color: #3e4d68; text-align: center; line-height: 1.6; }
+button:focus-visible { outline: 3px solid #3f75d2; outline-offset: 3px; }
 footer { color: #8a96a8; font-size: 12px; margin-top: 27px; text-align: center; }
 @media (max-width: 900px) {
     .workspace { grid-template-columns: 1fr; }

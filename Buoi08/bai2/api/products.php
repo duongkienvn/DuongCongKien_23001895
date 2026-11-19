@@ -22,6 +22,7 @@ try {
     // Kiểm tra ID và body trước khi thao tác dữ liệu.
     $id = null;
     $product = null;
+    $pagination = $method === 'GET' ? validatePagination($_GET) : null;
 
     if ($method === 'PUT' || $method === 'DELETE') {
         $id = requireProductId($_GET['id'] ?? null);
@@ -40,7 +41,13 @@ try {
 
     switch ($method) {
         case 'GET':
-            $stmt = $pdo->query('SELECT id, name, price, stock FROM products ORDER BY id ASC');
+            $total = (int) $pdo->query('SELECT COUNT(*) FROM products')->fetchColumn();
+            $totalPages = max(1, (int) ceil($total / $pagination['limit']));
+            $page = min($pagination['page'], $totalPages);
+            $stmt = $pdo->prepare('SELECT id, name, price, stock, image FROM products ORDER BY id DESC LIMIT :limit OFFSET :offset');
+            $stmt->bindValue(':limit', $pagination['limit'], PDO::PARAM_INT);
+            $stmt->bindValue(':offset', ($page - 1) * $pagination['limit'], PDO::PARAM_INT);
+            $stmt->execute();
             $products = $stmt->fetchAll();
 
             // Bảo đảm ID/giá/tồn là number trong JSON (không phải string).
@@ -51,7 +58,9 @@ try {
             }
             unset($row);
 
-            sendJson(200, ['success' => true, 'data' => $products]);
+            sendJson(200, ['success' => true, 'data' => $products, 'pagination' => [
+                'page' => $page, 'limit' => $pagination['limit'], 'total' => $total, 'total_pages' => $totalPages,
+            ]]);
 
         case 'POST':
             $stmt = $pdo->prepare(
@@ -92,23 +101,32 @@ try {
             sendJson(200, ['success' => true, 'message' => 'Cập nhật sản phẩm thành công.']);
 
         case 'DELETE':
+            $pdo->beginTransaction();
+            $check = $pdo->prepare('SELECT image FROM products WHERE id = :id FOR UPDATE');
+            $check->bindValue(':id', $id, PDO::PARAM_INT);
+            $check->execute();
+            $existing = $check->fetch();
             $stmt = $pdo->prepare('DELETE FROM products WHERE id = :id');
             $stmt->bindValue(':id', $id, PDO::PARAM_INT);
             $stmt->execute();
 
             if ($stmt->rowCount() === 0) {
+                $pdo->rollBack();
                 sendJson(404, ['success' => false, 'message' => 'Không tìm thấy sản phẩm cần xóa.']);
             }
-
+            $pdo->commit();
+            deleteProductImage($existing['image'] ?? null);
             sendJson(200, ['success' => true, 'message' => 'Xóa sản phẩm thành công.']);
     }
 } catch (InvalidArgumentException $exception) {
     sendJson(400, ['success' => false, 'message' => $exception->getMessage()]);
 } catch (PDOException $exception) {
+    if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
     // Không đưa username, password hoặc thông tin DB vào phản hồi API.
     error_log('Database error in products API: ' . $exception->getMessage());
     sendJson(500, ['success' => false, 'message' => 'Có lỗi khi kết nối hoặc thao tác cơ sở dữ liệu.']);
 } catch (Throwable $exception) {
+    if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
     error_log('Unexpected products API error: ' . $exception->getMessage());
     sendJson(500, ['success' => false, 'message' => 'Đã xảy ra lỗi trên máy chủ.']);
 }

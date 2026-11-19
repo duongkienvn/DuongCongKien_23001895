@@ -5,10 +5,16 @@ createApp({
     data() {
         return {
             products: [],
+            pagination: { page: 1, limit: 5, total: 0, total_pages: 1 },
             loading: false,
             loadFailed: false,
             busy: false,
             editingId: null,
+            selectedImage: null,
+            selectedImageUrl: '',
+            existingImage: null,
+            imageError: '',
+            pendingUpload: null,
             form: { name: '', price: '', stock: 0 },
             message: { type: '', text: '' },
         };
@@ -17,6 +23,9 @@ createApp({
     computed: {
         isEditing() {
             return this.editingId !== null;
+        },
+        imagePreview() {
+            return this.selectedImageUrl || this.imageUrl(this.existingImage);
         },
         inStockCount() {
             return this.products.filter(product => product.stock > 0).length;
@@ -37,8 +46,70 @@ createApp({
             return Number(price).toLocaleString('vi-VN') + ' đ';
         },
         resetForm() {
+            this.clearSelectedImage();
             this.editingId = null;
+            this.existingImage = null;
+            this.pendingUpload = null;
             this.form = { name: '', price: '', stock: 0 };
+        },
+        imageUrl(image) {
+            return typeof image === 'string' && /^uploads\/[a-zA-Z0-9_-]+\.(?:png|jpe?g)$/i.test(image)
+                ? '../bai2/' + image : '';
+        },
+        clearSelectedImage(resetInput = true) {
+            if (this.selectedImageUrl) URL.revokeObjectURL(this.selectedImageUrl);
+            this.selectedImage = null;
+            this.selectedImageUrl = '';
+            this.imageError = '';
+            if (resetInput && this.$refs?.imageInput) this.$refs.imageInput.value = '';
+        },
+        selectImage(event) {
+            const file = event.target.files[0];
+            this.clearSelectedImage(false);
+            if (!file) return;
+            if (!/\.(?:jpe?g|png)$/i.test(file.name) || !['image/jpeg', 'image/png'].includes(file.type)) {
+                this.imageError = 'Chỉ chọn ảnh JPG, JPEG hoặc PNG.';
+            } else if (file.size === 0 || file.size > 2 * 1024 * 1024) {
+                this.imageError = 'Ảnh phải có dung lượng lớn hơn 0 và không quá 2 MB.';
+            }
+            if (this.imageError) {
+                event.target.value = '';
+                return;
+            }
+            this.selectedImage = file;
+            this.selectedImageUrl = URL.createObjectURL(file);
+        },
+        async uploadImage(productId) {
+            const data = new FormData();
+            data.append('product_id', String(productId));
+            data.append('image', this.selectedImage);
+            return this.request('../bai2/api/upload.php', { method: 'POST', body: data });
+        },
+        async finishUpload() {
+            const pending = this.pendingUpload;
+            try {
+                await this.uploadImage(pending.productId);
+            } catch (error) {
+                await this.loadProducts(pending.reloadPage);
+                this.showMessage('error', 'Đã lưu thông tin sản phẩm #' + pending.productId
+                    + ', nhưng tải ảnh thất bại: ' + error.message + ' Chọn Thử tải ảnh lại để tiếp tục.');
+                return;
+            }
+            this.resetForm();
+            const refreshed = await this.loadProducts(pending.reloadPage);
+            this.showMessage(refreshed ? 'success' : 'error', refreshed
+                ? 'Đã lưu sản phẩm và tải ảnh thành công!'
+                : 'Đã lưu sản phẩm và ảnh, nhưng chưa tải lại được danh sách. Nhấn Làm mới để kiểm tra dữ liệu.');
+        },
+        async retryUpload() {
+            if (this.busy || this.loading || !this.pendingUpload || !this.selectedImage || this.imageError) return;
+            this.busy = true;
+            this.clearMessage();
+            try {
+                await this.finishUpload();
+            } finally {
+                this.busy = false;
+            }
         },
 
         // Gửi HTTP request; nếu API báo lỗi thì ném message để hiển thị.
@@ -84,24 +155,34 @@ createApp({
         },
 
         // GET: gọi lại mỗi khi mới mở trang, hoặc sau POST / PUT / DELETE.
-        async loadProducts() {
+        async loadProducts(page = this.pagination.page) {
             if (this.loading) return false;
             this.loading = true;
             this.clearMessage();
             try {
-                const result = await this.request('../bai2/api/products.php');
+                const result = await this.request(`../bai2/api/products.php?page=${page}&limit=5`);
                 const ids = new Set();
                 if (!Array.isArray(result.data) || !result.data.every(product => {
                     if (!product || !Number.isInteger(product.id) || product.id < 1 || product.id > 2147483647 || ids.has(product.id)
                         || typeof product.name !== 'string' || !product.name.trim() || [...product.name].length > 100
                         || !Number.isInteger(product.price) || product.price < 1 || product.price > 2147483647
-                        || !Number.isInteger(product.stock) || product.stock < 0 || product.stock > 2147483647) return false;
+                        || !Number.isInteger(product.stock) || product.stock < 0 || product.stock > 2147483647
+                        || (product.image !== null && !this.imageUrl(product.image))) return false;
                     ids.add(product.id);
                     return true;
                 })) {
                     throw new Error('Danh sách sản phẩm trong phản hồi API không hợp lệ.');
                 }
+                const pagination = result.pagination;
+                if (!pagination || pagination.limit !== 5 || !Number.isInteger(pagination.page) || pagination.page < 1
+                    || !Number.isInteger(pagination.total) || pagination.total < 0
+                    || pagination.total_pages !== Math.max(1, Math.ceil(pagination.total / 5))
+                    || pagination.page > pagination.total_pages
+                    || result.data.length !== Math.min(5, pagination.total - (pagination.page - 1) * 5)) {
+                    throw new Error('Thông tin phân trang trong phản hồi API không hợp lệ.');
+                }
                 this.products = result.data;
+                this.pagination = pagination;
                 this.loadFailed = false;
                 return true;
             } catch (error) {
@@ -114,8 +195,10 @@ createApp({
         },
 
         editProduct(product) {
-            if (this.busy || this.loading || this.loadFailed) return;
+            if (this.busy || this.loading || this.loadFailed || this.pendingUpload) return;
+            this.clearSelectedImage();
             this.editingId = product.id;
+            this.existingImage = product.image;
             this.form = {
                 name: product.name,
                 price: product.price,
@@ -128,6 +211,8 @@ createApp({
         // Tạo/sửa dùng chung một form; server vẫn kiểm tra dữ liệu lần nữa.
         async saveProduct() {
             if (this.busy || this.loading || this.loadFailed) return;
+            if (this.pendingUpload) return this.retryUpload();
+            if (this.imageError) return;
             const name = typeof this.form.name === 'string' ? this.form.name.trim() : '';
             const price = this.form.price;
             const stock = this.form.stock;
@@ -151,13 +236,26 @@ createApp({
             this.clearMessage();
 
             try {
-                await this.request(url, {
+                const saved = await this.request(url, {
                     method: isEdit ? 'PUT' : 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name, price, stock }),
                 });
+                const reloadPage = isEdit ? this.pagination.page : 1;
+                if (this.selectedImage) {
+                    const productId = isEdit ? this.editingId : saved.data?.id;
+                    if (!Number.isInteger(productId) || productId < 1) {
+                        const error = new Error('Không nhận được ID sản phẩm vừa tạo.');
+                        error.outcomeUnknown = true;
+                        throw error;
+                    }
+                    this.editingId = productId;
+                    this.pendingUpload = { productId, reloadPage };
+                    await this.finishUpload();
+                    return;
+                }
                 this.resetForm();
-                const refreshed = await this.loadProducts();
+                const refreshed = await this.loadProducts(reloadPage);
                 if (refreshed) {
                     this.showMessage('success', isEdit ? 'Cập nhật sản phẩm thành công!' : 'Thêm sản phẩm thành công!');
                 } else {
@@ -205,5 +303,8 @@ createApp({
 
     mounted() {
         this.loadProducts();
+    },
+    beforeUnmount() {
+        if (this.selectedImageUrl) URL.revokeObjectURL(this.selectedImageUrl);
     },
 }).mount('#app');

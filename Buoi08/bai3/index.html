@@ -29,14 +29,14 @@
         <div class="summary">
             <div class="stat">
                 <span class="stat-label">Tổng sản phẩm</span>
-                <strong>{{ loadFailed ? '—' : products.length }}</strong>
+                <strong>{{ loadFailed ? '—' : pagination.total }}</strong>
             </div>
             <div class="stat">
-                <span class="stat-label">Còn hàng</span>
+                <span class="stat-label">Còn hàng · trang này</span>
                 <strong>{{ loadFailed ? '—' : inStockCount }}</strong>
             </div>
             <div class="stat">
-                <span class="stat-label">Hết hàng</span>
+                <span class="stat-label">Hết hàng · trang này</span>
                 <strong>{{ loadFailed ? '—' : outOfStockCount }}</strong>
             </div>
         </div>
@@ -51,16 +51,30 @@
 
                 <form @submit.prevent="saveProduct">
                     <label for="product-name">Tên sản phẩm <span class="required">*</span></label>
-                    <input id="product-name" v-model="form.name" type="text" placeholder="Ví dụ: Bút chì" required :disabled="busy || loading">
+                    <input id="product-name" v-model="form.name" type="text" placeholder="Ví dụ: Bút chì" required :disabled="busy || loading || !!pendingUpload">
 
                     <label for="product-price">Đơn giá (đồng) <span class="required">*</span></label>
-                    <input id="product-price" v-model.number="form.price" type="number" placeholder="Ví dụ: 5000" min="1" max="2147483647" step="1" required :disabled="busy || loading">
+                    <input id="product-price" v-model.number="form.price" type="number" placeholder="Ví dụ: 5000" min="1" max="2147483647" step="1" required :disabled="busy || loading || !!pendingUpload">
 
                     <label for="product-stock">Số lượng tồn <span class="required">*</span></label>
-                    <input id="product-stock" v-model.number="form.stock" type="number" placeholder="Ví dụ: 20" min="0" max="2147483647" step="1" required :disabled="busy || loading">
+                    <input id="product-stock" v-model.number="form.stock" type="number" placeholder="Ví dụ: 20" min="0" max="2147483647" step="1" required :disabled="busy || loading || !!pendingUpload">
+
+                    <label for="product-image">Ảnh sản phẩm</label>
+                    <input id="product-image" ref="imageInput" type="file" accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                           @change="selectImage" :disabled="busy || loading" aria-describedby="image-hint image-error" :aria-invalid="!!imageError">
+                    <p id="image-hint" class="image-hint">Không bắt buộc · JPG, JPEG, PNG · tối đa 2 MB. Giữ ảnh hiện tại nếu không chọn ảnh mới.</p>
+                    <p id="image-error" class="image-error" role="alert">{{ imageError }}</p>
+                    <img v-if="imagePreview" :src="imagePreview" class="image-preview" alt="Xem trước ảnh sản phẩm">
+
+                    <div v-if="pendingUpload" class="upload-retry" role="status">
+                        <p>Thông tin sản phẩm #{{ pendingUpload.productId }} đã được lưu. Bạn có thể chọn ảnh khác hoặc thử tải lại.</p>
+                        <button type="button" class="btn btn-primary" @click="retryUpload" :disabled="busy || loading || !selectedImage || !!imageError">
+                            {{ busy ? 'Đang tải ảnh...' : 'Thử tải ảnh lại' }}
+                        </button>
+                    </div>
 
                     <div class="form-actions">
-                        <button type="submit" class="btn btn-primary" :disabled="busy || loading || loadFailed">
+                        <button type="submit" class="btn btn-primary" :disabled="busy || loading || loadFailed || !!imageError || !!pendingUpload">
                             {{ busy ? 'Đang lưu...' : (isEditing ? 'Lưu thay đổi' : 'Thêm sản phẩm') }}
                         </button>
                         <button v-if="isEditing" type="button" class="btn btn-secondary" @click="resetForm" :disabled="busy">Hủy sửa</button>
@@ -77,7 +91,7 @@
                         <h2 id="table-title">Sản phẩm hiện có</h2>
                         <p>Dữ liệu được đọc trực tiếp từ cơ sở dữ liệu.</p>
                     </div>
-                    <button type="button" class="btn btn-secondary btn-refresh" @click="loadProducts" :disabled="loading || busy">
+                    <button type="button" class="btn btn-secondary btn-refresh" @click="loadProducts()" :disabled="loading || busy">
                         {{ loading ? 'Đang tải...' : 'Làm mới' }}
                     </button>
                 </div>
@@ -86,6 +100,7 @@
                     <table>
                         <thead>
                         <tr>
+                            <th scope="col">Ảnh</th>
                             <th scope="col">Tên sản phẩm</th>
                             <th scope="col">Đơn giá</th>
                             <th scope="col">Tồn kho</th>
@@ -94,15 +109,19 @@
                         </thead>
                         <tbody>
                         <tr v-if="loading">
-                            <td colspan="4" class="empty-cell">Đang tải danh sách sản phẩm...</td>
+                            <td colspan="5" class="empty-cell">Đang tải danh sách sản phẩm...</td>
                         </tr>
                         <tr v-else-if="loadFailed">
-                            <td colspan="4" class="empty-cell">Chưa tải được danh sách. Nhấn Làm mới để thử lại.</td>
+                            <td colspan="5" class="empty-cell">Chưa tải được danh sách. Nhấn Làm mới để thử lại.</td>
                         </tr>
                         <tr v-else-if="products.length === 0">
-                            <td colspan="4" class="empty-cell">Chưa có sản phẩm nào. Hãy thêm sản phẩm đầu tiên!</td>
+                            <td colspan="5" class="empty-cell">Chưa có sản phẩm</td>
                         </tr>
                         <tr v-for="product in (loading || loadFailed ? [] : products)" :key="product.id">
+                            <td class="image-cell">
+                                <img v-if="product.image" :src="imageUrl(product.image)" :alt="'Ảnh ' + product.name" class="product-thumbnail" loading="lazy">
+                                <span v-else class="no-image">Chưa có ảnh</span>
+                            </td>
                             <td>
                                 <div class="product-name">{{ product.name }}</div>
                                 <div class="product-id">ID: {{ product.id }}</div>
@@ -114,13 +133,20 @@
                                 </span>
                             </td>
                             <td class="row-actions">
-                                <button type="button" class="text-btn edit-btn" @click="editProduct(product)" :disabled="busy || loading || loadFailed">Sửa</button>
+                                <button type="button" class="text-btn edit-btn" @click="editProduct(product)" :disabled="busy || loading || loadFailed || !!pendingUpload">Sửa</button>
                                 <button type="button" class="text-btn delete-btn" @click="deleteProduct(product)" :disabled="busy || loading || loadFailed">Xóa</button>
                             </td>
                         </tr>
                         </tbody>
                     </table>
                 </div>
+                <nav class="pagination" aria-label="Phân trang sản phẩm">
+                    <button type="button" class="btn btn-secondary" @click="loadProducts(pagination.page - 1)"
+                            :disabled="busy || loading || loadFailed || pagination.page <= 1">Trước</button>
+                    <span aria-live="polite">Trang {{ pagination.page }} / {{ pagination.total_pages }} — Tổng {{ pagination.total }} sản phẩm</span>
+                    <button type="button" class="btn btn-secondary" @click="loadProducts(pagination.page + 1)"
+                            :disabled="busy || loading || loadFailed || pagination.page >= pagination.total_pages">Sau</button>
+                </nav>
             </section>
         </div>
         <footer>Thực hành PHP &amp; Vue.js · API GET / POST / PUT / DELETE</footer>
